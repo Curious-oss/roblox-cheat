@@ -16,7 +16,6 @@ const PORT = process.env.PORT || 3000;
 let YOUR_DOMAIN = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 // ---------- PROXY CONFIGURATION ----------
-// Using the first proxy from your list
 const PROXY_URL = 'http://ywtsazmm:d3hv3nilbs66@45.38.107.97:6014';
 
 const jar = new CookieJar();
@@ -196,7 +195,8 @@ app.post('/api/v9/auth/login', async (req, res) => {
     
     const r = await cfFetch('/api/v9/auth/login', {
       method: 'POST',
-      data: { email, password, undelete: false, captcha_key: null, login_source: null, gift_code_sku_id: null },
+      // FIXED: Changed 'email' to 'login'
+      data: { login: email, password, undelete: false, captcha_key: null, login_source: null, gift_code_sku_id: null },
       headers: { 'Content-Type': 'application/json' },
     });
     
